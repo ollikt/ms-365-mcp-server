@@ -51,6 +51,7 @@ class MicrosoftGraphServer {
   private graphClient: GraphClient | null;
   private server: McpServer | null;
   private secrets: AppSecrets | null;
+  private version: string | null = null;
 
   constructor(authManager: AuthManager, options: CommandOptions = {}) {
     this.authManager = authManager;
@@ -60,41 +61,51 @@ class MicrosoftGraphServer {
     this.secrets = null;
   }
 
+  /**
+   * Creates a new McpServer instance with tools registered. Use one instance per connection
+   * (per HTTP request in HTTP mode, or single instance for stdio).
+   */
+  private createMcpServer(): McpServer {
+    const server = new McpServer({
+      name: 'Microsoft365MCP',
+      version: this.version!,
+    });
+
+    const shouldRegisterAuthTools = !this.options.http || this.options.enableAuthTools;
+    if (shouldRegisterAuthTools) {
+      registerAuthTools(server, this.authManager);
+    }
+
+    if (this.options.discovery) {
+      logger.info('Discovery mode enabled (experimental) - registering discovery tool only');
+      registerDiscoveryTools(
+        server,
+        this.graphClient!,
+        this.options.readOnly,
+        this.options.orgMode
+      );
+    } else {
+      registerGraphTools(
+        server,
+        this.graphClient!,
+        this.options.readOnly,
+        this.options.enabledTools,
+        this.options.orgMode
+      );
+    }
+
+    return server;
+  }
+
   async initialize(version: string): Promise<void> {
+    this.version = version;
+
     // Load secrets first
     this.secrets = await getSecrets();
 
     // Initialize GraphClient with secrets
     const outputFormat = this.options.toon ? 'toon' : 'json';
     this.graphClient = new GraphClient(this.authManager, this.secrets, outputFormat);
-
-    this.server = new McpServer({
-      name: 'Microsoft365MCP',
-      version,
-    });
-
-    const shouldRegisterAuthTools = !this.options.http || this.options.enableAuthTools;
-    if (shouldRegisterAuthTools) {
-      registerAuthTools(this.server, this.authManager);
-    }
-
-    if (this.options.discovery) {
-      logger.info('Discovery mode enabled (experimental) - registering discovery tool only');
-      registerDiscoveryTools(
-        this.server,
-        this.graphClient,
-        this.options.readOnly,
-        this.options.orgMode
-      );
-    } else {
-      registerGraphTools(
-        this.server,
-        this.graphClient,
-        this.options.readOnly,
-        this.options.enabledTools,
-        this.options.orgMode
-      );
-    }
   }
 
   async start(): Promise<void> {
@@ -357,15 +368,17 @@ class MicrosoftGraphServer {
           res: Response
         ) => {
           const handler = async () => {
+            const server = this.createMcpServer();
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: undefined, // Stateless mode
             });
 
             res.on('close', () => {
               transport.close();
+              server.close();
             });
 
-            await this.server!.connect(transport);
+            await server.connect(transport);
             await transport.handleRequest(req as any, res as any, undefined);
           };
 
@@ -405,15 +418,17 @@ class MicrosoftGraphServer {
           res: Response
         ) => {
           const handler = async () => {
+            const server = this.createMcpServer();
             const transport = new StreamableHTTPServerTransport({
               sessionIdGenerator: undefined, // Stateless mode
             });
 
             res.on('close', () => {
               transport.close();
+              server.close();
             });
 
-            await this.server!.connect(transport);
+            await server.connect(transport);
             await transport.handleRequest(req as any, res as any, req.body);
           };
 
@@ -470,8 +485,9 @@ class MicrosoftGraphServer {
         });
       }
     } else {
+      this.server = this.createMcpServer();
       const transport = new StdioServerTransport();
-      await this.server!.connect(transport);
+      await this.server.connect(transport);
       logger.info('Server connected to stdio transport');
     }
   }
