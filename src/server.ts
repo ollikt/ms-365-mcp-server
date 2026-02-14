@@ -467,6 +467,7 @@ class MicrosoftGraphServer {
 
       if (host) {
         app.listen(port, host, () => {
+          logger.info(`Server version: multi-client`);
           logger.info(`Server listening on ${host}:${port}`);
           logger.info(`  - MCP endpoint: http://${host}:${port}/mcp`);
           logger.info(`  - OAuth endpoints: http://${host}:${port}/auth/*`);
@@ -476,6 +477,7 @@ class MicrosoftGraphServer {
         });
       } else {
         app.listen(port, () => {
+          logger.info(`Server version: multi-client`);
           logger.info(`Server listening on all interfaces (0.0.0.0:${port})`);
           logger.info(`  - MCP endpoint: http://localhost:${port}/mcp`);
           logger.info(`  - OAuth endpoints: http://localhost:${port}/auth/*`);
